@@ -4,6 +4,7 @@ from iree.compiler import tf as tfc
 from iree.compiler import compile_str
 import sys
 from absl import app
+import time
 
 import numpy as np
 import os
@@ -74,5 +75,14 @@ if __name__ == "__main__":
     BertCompiled = ctx.modules.module
     predict_sample_input = [np.random.randint(5, size=(BATCH_SIZE,SEQUENCE_LENGTH)), np.random.randint(5, size=(BATCH_SIZE,SEQUENCE_LENGTH)), np.random.randint(5, size=(BATCH_SIZE,SEQUENCE_LENGTH))]
     learn_sample_input = [predict_sample_input, np.random.randint(5, size=(BATCH_SIZE))]
-    for i in range(5):
+    warmup = 5
+    total_iter = 10
+    num_iter = total_iter - warmup
+    for i in range(10):
+        if(i == warmup-1):
+            start = time.time()
         print(BertCompiled.learn(predict_sample_input,np.random.randint(5, size=(BATCH_SIZE))))
+    end = time.time()
+    total_time = end - start
+    print("time: "+str(total_time))
+    print("time/iter: "+str(total_time/num_iter))
