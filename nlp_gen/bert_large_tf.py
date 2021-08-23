@@ -1,13 +1,8 @@
-from iree import runtime as ireert
-from iree.tf.support import module_utils
-from iree.compiler import tf as tfc
-import sys
-from absl import app
-
 import numpy as np
 import os
 import tempfile
 import tensorflow as tf
+import time
 
 from official.nlp.modeling import layers
 from official.nlp.modeling import networks
@@ -37,20 +32,19 @@ class BertModule(tf.Module):
         # Invoke the trainer model on the inputs. This causes the layer to be built.
         self.m = bert_trainer_model
         self.m.predict = lambda x: self.m.call(x, training=False)
+        self.predict = tf.function(
+            input_signature=[bert_input])(self.m.predict)
         self.m.learn = lambda x,y: self.m.call(x, training=False)
         self.loss = tf.keras.losses.SparseCategoricalCrossentropy()
         self.optimizer = tf.keras.optimizers.SGD(learning_rate=1e-2)
 
     @tf.function(input_signature=[
-        tf.TensorSpec(shape=[BATCH_SIZE,SEQUENCE_LENGTH],dtype=tf.int32), #input0: input_word_ids
-        tf.TensorSpec(shape=[BATCH_SIZE,SEQUENCE_LENGTH], dtype=tf.int32), #input1: input_mask
-        tf.TensorSpec(shape=[BATCH_SIZE,SEQUENCE_LENGTH], dtype=tf.int32), #input2: segment_ids
-        tf.TensorSpec([BATCH_SIZE], tf.int32)  # input3: labels
+        bert_input,  # inputs
+        tf.TensorSpec(shape=[BATCH_SIZE], dtype=tf.int32)  # labels
     ])
-    def learn(self,input_word_ids, input_mask, segment_ids, labels):
+    def learn(self,inputs,labels):
         with tf.GradientTape() as tape:
             # Capture the gradients from forward prop...
-            inputs = [input_word_ids, input_mask, segment_ids]
             probs = self.m(inputs, training=True)
             loss = self.loss(labels, probs)
 
@@ -60,18 +54,19 @@ class BertModule(tf.Module):
         self.optimizer.apply_gradients(zip(gradients, variables))
         return loss
 
-    @tf.function(input_signature=bert_input)
-    def predict(self,input_word_ids, input_mask, segment_ids):
-        inputs = [input_word_ids, input_mask, segment_ids]
-        return self.m.predict(inputs)
-
 if __name__ == "__main__":
     # BertModule()
-    # Compile the model using IREE
-    compiler_module = tfc.compile_module(BertModule(), exported_names = ["learn"], import_only=True)
-    # Save module as MLIR file in a directory
-    ARITFACTS_DIR = "/tmp"
-    mlir_path = os.path.join(ARITFACTS_DIR, "model.mlir")
-    with open(mlir_path, "wt") as output_file:
-        output_file.write(compiler_module.decode('utf-8'))
-    print(f"Wrote MLIR to path '{mlir_path}'")
+    predict_sample_input = [np.random.randint(5, size=(BATCH_SIZE,SEQUENCE_LENGTH)), np.random.randint(5, size=(BATCH_SIZE,SEQUENCE_LENGTH)), np.random.randint(5, size=(BATCH_SIZE,SEQUENCE_LENGTH))]
+    bert_model = BertModule()
+    warmup = 1
+    total_iter = 10
+    num_iter = total_iter - warmup
+    for i in range(total_iter):
+        print(bert_model.learn(predict_sample_input,np.random.randint(5, size=(BATCH_SIZE))))
+        if(i == warmup-1):
+            start = time.time()
+
+    end = time.time()
+    total_time = end - start
+    print("time: "+str(total_time))
+    print("time/iter: "+str(total_time/num_iter))
